@@ -9,7 +9,7 @@ docs/build/
 
 bench/results/
 bench/env/
-bench/h11/
+bench/h11pro/
 fuzz/results/
 
 # Byte-compiled / optimized / DLL files

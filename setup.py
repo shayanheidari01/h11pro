@@ -1,16 +1,16 @@
 from setuptools import setup, find_packages
 
 # defines __version__
-exec(open("h11/_version.py").read())
+exec(open("h11pro/_version.py").read())
 
 setup(
-    name="h11",
+    name="h11pro",
     version=__version__,
     description=
         "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1",
     long_description=open("README.rst").read(),
-    author="Nathaniel J. Smith",
-    author_email="njs@pobox.com",
+    author="Shayan Heidari",
+    author_email="contact@shayanheidari.info",
     license="MIT",
     packages=find_packages(exclude=["h11.tests"]),
     package_data={'h11': ['py.typed']},

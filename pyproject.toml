@@ -5,7 +5,7 @@
 #    customize this)
 # - At release time after bumping version number, run: towncrier
 #   (or towncrier --draft)
-package = "h11"
+package = "h11pro"
 filename = "docs/source/changes.rst"
 directory = "newsfragments"
 underlines = ["-", "~", "^"]

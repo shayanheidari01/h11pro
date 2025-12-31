@@ -1,8 +1,8 @@
 <!-- https://github.com/nayafia/contributing-template/blob/master/CONTRIBUTING-template.md -->
 
-# Contributing to h11
+# Contributing to h11pro
 
-Thanks for your interest in contributing to h11! Please take a moment
+Thanks for your interest in contributing to h11pro! Please take a moment
 to review this document in order to make the contribution process easy
 and effective for everyone involved.
 
@@ -15,7 +15,7 @@ your pull requests.
 
 ## What we're looking for
 
-h11 is largely feature-complete, in the sense that it has a fairly
+h11pro is largely feature-complete, in the sense that it has a fairly
 well-defined scope and (as far as we know) implements pretty much
 everything that fits within that scope. If we're wrong, please let us
 know :-). But mostly we're not looking for major new features. On the
@@ -24,11 +24,11 @@ other hand, the following are all very welcome:
 * Bug reports and bug fixes
 
 * API feedback and suggestions, especially based on experience using
-  h11
+  h11pro
 
 * Help making the docs more clear, complete, and generally useful
 
-* Good examples of using h11 in different settings (e.g. with twisted,
+* Good examples of using h11pro in different settings (e.g. with twisted,
   with asyncio, ...) to accomplish different tasks
 
 * Improvements in test coverage
@@ -47,8 +47,8 @@ other hand, the following are all very welcome:
   [isort](https://github.com/timothycrosley/isort) as configured in
   the project. With those projects installed the commands,
 
-      black h11/ bench/ examples/ fuzz/
-      isort --profile black --dt h11 bench examples fuzz
+      black h11pro/ bench/ examples/ fuzz/
+      isort --profile black --dt h11pro bench examples fuzz
 
   will format your code for you.
 
@@ -57,7 +57,7 @@ other hand, the following are all very welcome:
   make sure that we won't later accidentally break whatever you just
   fixed, and undo your hard work.
 
-* [Statement and branch coverage](https://codecov.io/gh/python-hyper/h11)
+* [Statement and branch coverage](https://codecov.io/gh/python-hyper/h11pro)
   needs to remain at 100.0%. But don't stress too much about making
   this work up front -- if you post a pull request, then the codecov
   bot will automatically post a reply letting you know whether you've

@@ -1,6 +1,6 @@
 [run]
 branch=True
-source=h11
+source=h11pro
 omit=
   setup.py
 
