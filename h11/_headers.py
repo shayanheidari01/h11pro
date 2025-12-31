@@ -1,8 +1,8 @@
 import re
-from typing import AnyStr, cast, List, overload, Sequence, Tuple, TYPE_CHECKING, Union
+from typing import List, overload, Sequence, Tuple, TYPE_CHECKING, Union
 
 from ._abnf import field_name, field_value
-from ._util import bytesify, LocalProtocolError, validate
+from ._util import bytesify, LocalProtocolError
 
 if TYPE_CHECKING:
     from ._events import Request
@@ -72,6 +72,22 @@ CONTENT_LENGTH_MAX_DIGITS = 20  # allow up to 1 billion TB - 1
 _content_length_re = re.compile(rb"[0-9]+")
 _field_name_re = re.compile(field_name.encode("ascii"))
 _field_value_re = re.compile(field_value.encode("ascii"))
+_content_length_match = _content_length_re.fullmatch
+_field_name_match = _field_name_re.fullmatch
+_field_value_match = _field_value_re.fullmatch
+
+
+def _normalize_content_length_value(value: bytes) -> bytes:
+    normalized: Union[bytes, None] = None
+    for raw_part in value.split(b","):
+        part = raw_part.strip()
+        if normalized is None:
+            normalized = part
+        elif normalized != part:
+            raise LocalProtocolError("conflicting Content-Length headers")
+    if normalized is None:
+        normalized = b""
+    return normalized
 
 
 class Headers(Sequence[Tuple[bytes, bytes]]):
@@ -152,47 +168,40 @@ def normalize_and_validate(
 def normalize_and_validate(
     headers: Union[Headers, HeaderTypes], _parsed: bool = False
 ) -> Headers:
-    new_headers = []
-    seen_content_length = None
+    new_headers: List[Tuple[bytes, bytes, bytes]] = []
+    append = new_headers.append
+    seen_content_length: Union[bytes, None] = None
     saw_transfer_encoding = False
+    _bytesify = bytesify
     for name, value in headers:
-        # For headers coming out of the parser, we can safely skip some steps,
-        # because it always returns bytes and has already run these regexes
-        # over the data:
         if not _parsed:
-            name = bytesify(name)
-            value = bytesify(value)
-            validate(_field_name_re, name, "Illegal header name {!r}", name)
-            validate(_field_value_re, value, "Illegal header value {!r}", value)
+            name = _bytesify(name)
+            value = _bytesify(value)
+            if _field_name_match(name) is None:
+                raise LocalProtocolError("Illegal header name {!r}".format(name))
+            if _field_value_match(value) is None:
+                raise LocalProtocolError("Illegal header value {!r}".format(value))
         assert isinstance(name, bytes)
         assert isinstance(value, bytes)
 
         raw_name = name
-        name = name.lower()
-        if name == b"content-length":
-            lengths = {length.strip() for length in value.split(b",")}
-            if len(lengths) != 1:
-                raise LocalProtocolError("conflicting Content-Length headers")
-            value = lengths.pop()
-            validate(_content_length_re, value, "bad Content-Length")
-            if len(value) > CONTENT_LENGTH_MAX_DIGITS:
+        lower_name = name.lower()
+        if lower_name == b"content-length":
+            normalized_value = _normalize_content_length_value(value)
+            if _content_length_match(normalized_value) is None:
+                raise LocalProtocolError("bad Content-Length")
+            if len(normalized_value) > CONTENT_LENGTH_MAX_DIGITS:
                 raise LocalProtocolError("bad Content-Length")
             if seen_content_length is None:
-                seen_content_length = value
-                new_headers.append((raw_name, name, value))
-            elif seen_content_length != value:
+                seen_content_length = normalized_value
+                append((raw_name, lower_name, normalized_value))
+            elif seen_content_length != normalized_value:
                 raise LocalProtocolError("conflicting Content-Length headers")
-        elif name == b"transfer-encoding":
-            # "A server that receives a request message with a transfer coding
-            # it does not understand SHOULD respond with 501 (Not
-            # Implemented)."
-            # https://tools.ietf.org/html/rfc7230#section-3.3.1
+        elif lower_name == b"transfer-encoding":
             if saw_transfer_encoding:
                 raise LocalProtocolError(
                     "multiple Transfer-Encoding headers", error_status_hint=501
                 )
-            # "All transfer-coding names are case-insensitive"
-            # -- https://tools.ietf.org/html/rfc7230#section-4
             value = value.lower()
             if value != b"chunked":
                 raise LocalProtocolError(
@@ -200,9 +209,9 @@ def normalize_and_validate(
                     error_status_hint=501,
                 )
             saw_transfer_encoding = True
-            new_headers.append((raw_name, name, value))
+            append((raw_name, lower_name, value))
         else:
-            new_headers.append((raw_name, name, value))
+            append((raw_name, lower_name, value))
     return Headers(new_headers)
 
 
@@ -243,13 +252,14 @@ def get_comma_header(headers: Headers, name: bytes) -> List[bytes]:
     # "100-continue". Splitting on commas is harmless. Case insensitive.
     #
     out: List[bytes] = []
+    append = out.append
     for _, found_name, found_raw_value in headers._full_items:
         if found_name == name:
-            found_raw_value = found_raw_value.lower()
-            for found_split_value in found_raw_value.split(b","):
-                found_split_value = found_split_value.strip()
-                if found_split_value:
-                    out.append(found_split_value)
+            lowered_value = found_raw_value.lower()
+            for found_split_value in lowered_value.split(b","):
+                trimmed = found_split_value.strip()
+                if trimmed:
+                    append(trimmed)
     return out
 
 

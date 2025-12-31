@@ -1,5 +1,3 @@
-import re
-import sys
 from typing import List, Optional, Union
 
 __all__ = ["ReceiveBuffer"]
@@ -41,7 +39,6 @@ __all__ = ["ReceiveBuffer"]
 # slightly clever thing where we delay calling compress() until we've
 # processed a whole event, which could in theory be slightly more efficient
 # than the internal bytearray support.)
-blank_line_regex = re.compile(b"\n\r?\n", re.MULTILINE)
 
 
 class ReceiveBuffer:
@@ -55,7 +52,7 @@ class ReceiveBuffer:
         return self
 
     def __bool__(self) -> bool:
-        return bool(len(self))
+        return bool(self._data)
 
     def __len__(self) -> int:
         return len(self._data)
@@ -78,22 +75,27 @@ class ReceiveBuffer:
         """
         Extract a fixed number of bytes from the buffer.
         """
-        out = self._data[:count]
-        if not out:
+        data = self._data
+        if not data:
             return None
-
+        available = len(data)
+        if count >= available:
+            return self._extract(available)
         return self._extract(count)
 
     def maybe_extract_next_line(self) -> Optional[bytearray]:
         """
         Extract the first line, if it is completed in the buffer.
         """
+        data = self._data
         # Only search in buffer space that we've not already looked at.
-        search_start_index = max(0, self._next_line_search - 1)
-        partial_idx = self._data.find(b"\r\n", search_start_index)
+        search_start_index = self._next_line_search - 1
+        if search_start_index < 0:
+            search_start_index = 0
+        partial_idx = data.find(b"\r\n", search_start_index)
 
         if partial_idx == -1:
-            self._next_line_search = len(self._data)
+            self._next_line_search = len(data)
             return None
 
         # + 2 is to compensate len(b"\r\n")
@@ -101,38 +103,72 @@ class ReceiveBuffer:
 
         return self._extract(idx)
 
+    def _find_blank_line_end(self) -> Optional[int]:
+        data = self._data
+        search_start = self._multiple_lines_search
+        data_len = len(data)
+
+        while True:
+            newline_index = data.find(b"\n", search_start)
+            if newline_index == -1:
+                break
+
+            search_start = newline_index + 1
+            self._multiple_lines_search = search_start
+
+            if search_start >= data_len:
+                break
+
+            next_byte = data[search_start]
+
+            if next_byte == 0x0A:  # \n\n
+                return search_start + 1
+
+            if next_byte == 0x0D:  # \n\r\n (covers \r\n\r\n)
+                trailer_index = search_start + 1
+                if trailer_index >= data_len:
+                    break
+                if data[trailer_index] == 0x0A:
+                    return trailer_index + 1
+
+        self._multiple_lines_search = max(0, data_len - 2)
+        return None
+
     def maybe_extract_lines(self) -> Optional[List[bytearray]]:
         """
         Extract everything up to the first blank line, and return a list of lines.
         """
         # Handle the case where we have an immediate empty line.
-        if self._data[:1] == b"\n":
+        data = self._data
+        if data[:1] == b"\n":
             self._extract(1)
             return []
 
-        if self._data[:2] == b"\r\n":
+        if data[:2] == b"\r\n":
             self._extract(2)
             return []
 
         # Only search in buffer space that we've not already looked at.
-        match = blank_line_regex.search(self._data, self._multiple_lines_search)
-        if match is None:
-            self._multiple_lines_search = max(0, len(self._data) - 2)
+        idx = self._find_blank_line_end()
+        if idx is None:
             return None
 
         # Truncate the buffer and return it.
-        idx = match.span(0)[-1]
         out = self._extract(idx)
-        lines = out.split(b"\n")
-
-        for line in lines:
+        lines: List[bytearray] = []
+        start = 0
+        end = len(out)
+        while start < end:
+            newline_index = out.find(b"\n", start)
+            if newline_index == -1:
+                break
+            line = out[start:newline_index]
             if line.endswith(b"\r"):
                 del line[-1]
-
-        assert lines[-2] == lines[-1] == b""
-
-        del lines[-2:]
-
+            if not line:
+                break
+            lines.append(line)
+            start = newline_index + 1
         return lines
 
     # In theory we should wait until `\r\n` before starting to validate

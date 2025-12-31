@@ -27,6 +27,7 @@ __all__ = [
 
 method_re = re.compile(method.encode("ascii"))
 request_target_re = re.compile(request_target.encode("ascii"))
+_HOST = b"host"
 
 
 class Event(ABC):
@@ -110,9 +111,12 @@ class Request(Event):
         # Host header field with an invalid field-value."
         # -- https://tools.ietf.org/html/rfc7230#section-5.4
         host_count = 0
-        for name, value in self.headers:
-            if name == b"host":
+        headers_items = self.headers._full_items
+        for _, name, _ in headers_items:
+            if name == _HOST:
                 host_count += 1
+                if host_count > 1:
+                    break
         if self.http_version == b"1.1" and host_count == 0:
             raise LocalProtocolError("Missing mandatory Host: header")
         if host_count > 1:

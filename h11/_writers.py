@@ -18,6 +18,12 @@ __all__ = ["WRITERS"]
 
 Writer = Callable[[bytes], Any]
 
+_HOST = b"host"
+_SPACE = b" "
+_COLON_SPACE = b": "
+_CRLF = b"\r\n"
+_HTTP_11 = b"HTTP/1.1"
+
 
 def write_headers(headers: Headers, write: Writer) -> None:
     # "Since the Host field-value is critical information for handling a
@@ -25,18 +31,29 @@ def write_headers(headers: Headers, write: Writer) -> None:
     # following the request-line." - RFC 7230
     raw_items = headers._full_items
     for raw_name, name, value in raw_items:
-        if name == b"host":
-            write(b"%s: %s\r\n" % (raw_name, value))
+        if name == _HOST:
+            write(raw_name)
+            write(_COLON_SPACE)
+            write(value)
+            write(_CRLF)
     for raw_name, name, value in raw_items:
-        if name != b"host":
-            write(b"%s: %s\r\n" % (raw_name, value))
-    write(b"\r\n")
+        if name != _HOST:
+            write(raw_name)
+            write(_COLON_SPACE)
+            write(value)
+            write(_CRLF)
+    write(_CRLF)
 
 
 def write_request(request: Request, write: Writer) -> None:
     if request.http_version != b"1.1":
         raise LocalProtocolError("I only send HTTP/1.1")
-    write(b"%s %s HTTP/1.1\r\n" % (request.method, request.target))
+    write(request.method)
+    write(_SPACE)
+    write(request.target)
+    write(_SPACE)
+    write(_HTTP_11)
+    write(_CRLF)
     write_headers(request.headers, write)
 
 
@@ -55,7 +72,12 @@ def write_any_response(
     # from stdlib's http.HTTPStatus table. Or maybe just steal their enums
     # (either by import or copy/paste). We already accept them as status codes
     # since they're of type IntEnum < int.
-    write(b"HTTP/1.1 %s %s\r\n" % (status_bytes, response.reason))
+    write(_HTTP_11)
+    write(_SPACE)
+    write(status_bytes)
+    write(_SPACE)
+    write(response.reason)
+    write(_CRLF)
     write_headers(response.headers, write)
 
 

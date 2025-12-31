@@ -265,12 +265,14 @@ class ConnectionState:
         self._fire_state_triggered_transitions()
 
     def process_keep_alive_disabled(self) -> None:
-        self.keep_alive = False
-        self._fire_state_triggered_transitions()
+        if self.keep_alive:
+            self.keep_alive = False
+            self._fire_state_triggered_transitions()
 
     def process_client_switch_proposal(self, switch_event: Type[Sentinel]) -> None:
-        self.pending_switch_proposals.add(switch_event)
-        self._fire_state_triggered_transitions()
+        if switch_event not in self.pending_switch_proposals:
+            self.pending_switch_proposals.add(switch_event)
+            self._fire_state_triggered_transitions()
 
     def process_event(
         self,
@@ -287,7 +289,7 @@ class ConnectionState:
                 )
             _event_type = (event_type, server_switch_event)
         if server_switch_event is None and _event_type is Response:
-            self.pending_switch_proposals = set()
+            self.pending_switch_proposals.clear()
         self._fire_event_triggered_transitions(role, _event_type)
         # Special case: the server state does get to see Request
         # events.
@@ -302,13 +304,24 @@ class ConnectionState:
         event_type: Union[Type[Event], Tuple[Type[Event], Type[Sentinel]]],
     ) -> None:
         state = self.states[role]
-        try:
-            new_state = EVENT_TRIGGERED_TRANSITIONS[role][state][event_type]
-        except KeyError:
-            event_type = cast(Type[Event], event_type)
+        role_transitions = EVENT_TRIGGERED_TRANSITIONS.get(role)
+        if role_transitions is None:
+            raise LocalProtocolError("unknown role {}".format(role))
+        state_transitions = role_transitions.get(state)
+        if state_transitions is None:
+            event_type_cast = cast(Type[Event], event_type)
             raise LocalProtocolError(
                 "can't handle event type {} when role={} and state={}".format(
-                    event_type.__name__, role, self.states[role]
+                    event_type_cast.__name__, role, state
+                )
+            )
+        try:
+            new_state = state_transitions[event_type]
+        except KeyError:
+            event_type_cast = cast(Type[Event], event_type)
+            raise LocalProtocolError(
+                "can't handle event type {} when role={} and state={}".format(
+                    event_type_cast.__name__, role, state
                 )
             ) from None
         self.states[role] = new_state
@@ -316,7 +329,10 @@ class ConnectionState:
     def _fire_state_triggered_transitions(self) -> None:
         # We apply these rules repeatedly until converging on a fixed point
         while True:
-            start_states = dict(self.states)
+            changed = False
+            states = self.states
+            client_state = states[CLIENT]
+            server_state = states[SERVER]
 
             # It could happen that both these special-case transitions are
             # enabled at the same time:
@@ -332,29 +348,42 @@ class ConnectionState:
             # request, in which case the client will go back to DONE and then
             # from there to MUST_CLOSE.
             if self.pending_switch_proposals:
-                if self.states[CLIENT] is DONE:
-                    self.states[CLIENT] = MIGHT_SWITCH_PROTOCOL
-
-            if not self.pending_switch_proposals:
-                if self.states[CLIENT] is MIGHT_SWITCH_PROTOCOL:
-                    self.states[CLIENT] = DONE
+                if client_state is DONE:
+                    client_state = states[CLIENT] = MIGHT_SWITCH_PROTOCOL
+                    changed = True
+            else:
+                if client_state is MIGHT_SWITCH_PROTOCOL:
+                    client_state = states[CLIENT] = DONE
+                    changed = True
 
             if not self.keep_alive:
-                for role in (CLIENT, SERVER):
-                    if self.states[role] is DONE:
-                        self.states[role] = MUST_CLOSE
+                if client_state is DONE:
+                    client_state = states[CLIENT] = MUST_CLOSE
+                    changed = True
+                if server_state is DONE:
+                    server_state = states[SERVER] = MUST_CLOSE
+                    changed = True
 
             # Tabular state-triggered transitions
-            joint_state = (self.states[CLIENT], self.states[SERVER])
-            changes = STATE_TRIGGERED_TRANSITIONS.get(joint_state, {})
-            self.states.update(changes)
+            joint_state = (client_state, server_state)
+            changes = STATE_TRIGGERED_TRANSITIONS.get(joint_state)
+            if changes:
+                new_client = changes.get(CLIENT)
+                if new_client is not None and states[CLIENT] is not new_client:
+                    client_state = states[CLIENT] = new_client
+                    changed = True
+                new_server = changes.get(SERVER)
+                if new_server is not None and states[SERVER] is not new_server:
+                    server_state = states[SERVER] = new_server
+                    changed = True
 
-            if self.states == start_states:
+            if not changed:
                 # Fixed point reached
                 return
 
     def start_next_cycle(self) -> None:
-        if self.states != {CLIENT: DONE, SERVER: DONE}:
+        states = self.states
+        if states.get(CLIENT) is not DONE or states.get(SERVER) is not DONE:
             raise LocalProtocolError(
                 f"not in a reusable state. self.states={self.states}"
             )

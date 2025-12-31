@@ -37,22 +37,33 @@ from ._util import LocalProtocolError, RemoteProtocolError, Sentinel, validate
 __all__ = ["READERS"]
 
 header_field_re = re.compile(header_field.encode("ascii"))
-obs_fold_re = re.compile(rb"[ \t]+")
+_SPACE = 0x20
+_HTAB = 0x09
+
+
+def _leading_obs_fold_len(line: bytes) -> int:
+    length = 0
+    for byte in line:
+        if byte == _SPACE or byte == _HTAB:
+            length += 1
+        else:
+            break
+    return length
 
 
 def _obsolete_line_fold(lines: Iterable[bytes]) -> Iterable[bytes]:
     it = iter(lines)
     last: Optional[bytes] = None
     for line in it:
-        match = obs_fold_re.match(line)
-        if match:
+        prefix_len = _leading_obs_fold_len(line)
+        if prefix_len:
             if last is None:
                 raise LocalProtocolError("continuation line at start of headers")
             if not isinstance(last, bytearray):
                 # Cast to a mutable type, avoiding copy on append to ensure O(n) time
                 last = bytearray(last)
             last += b" "
-            last += line[match.end() :]
+            last += line[prefix_len:]
         else:
             if last is not None:
                 yield last
@@ -65,8 +76,10 @@ def _decode_header_lines(
     lines: Iterable[bytes],
 ) -> Iterable[Tuple[bytes, bytes]]:
     for line in _obsolete_line_fold(lines):
-        matches = validate(header_field_re, line, "illegal header line: {!r}", line)
-        yield (matches["field_name"], matches["field_value"])
+        match = header_field_re.fullmatch(line)
+        if not match:
+            raise LocalProtocolError("illegal header line: {!r}".format(line))
+        yield (match.group("field_name"), match.group("field_value"))
 
 
 request_line_re = re.compile(request_line.encode("ascii"))

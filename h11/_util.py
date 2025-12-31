@@ -9,7 +9,13 @@ __all__ = [
 ]
 
 
+_ASCII = "ascii"
+_STR_ENCODE = str.encode
+
+
 class ProtocolError(Exception):
+    __slots__ = ("error_status_hint",)
+
     """Exception indicating a violation of the HTTP/1.1 protocol.
 
     This as an abstract base class, with two concrete base classes:
@@ -57,6 +63,8 @@ class ProtocolError(Exception):
 #   LocalProtocolError is for local errors and RemoteProtocolError is for
 #   remote errors.
 class LocalProtocolError(ProtocolError):
+    __slots__ = ()
+
     def _reraise_as_remote_protocol_error(self) -> NoReturn:
         # After catching a LocalProtocolError, use this method to re-raise it
         # as a RemoteProtocolError. This method must be called from inside an
@@ -78,6 +86,8 @@ class LocalProtocolError(ProtocolError):
 
 
 class RemoteProtocolError(ProtocolError):
+    __slots__ = ()
+
     pass
 
 
@@ -126,10 +136,15 @@ class Sentinel(type):
 # returns bytes.
 def bytesify(s: Union[bytes, bytearray, memoryview, int, str]) -> bytes:
     # Fast-path:
-    if type(s) is bytes:
+    obj_type = type(s)
+    if obj_type is bytes:
         return s
-    if isinstance(s, str):
-        s = s.encode("ascii")
-    if isinstance(s, int):
+    if obj_type is str or isinstance(s, str):
+        return _STR_ENCODE(s, _ASCII)
+    if obj_type is int or isinstance(s, int):
         raise TypeError("expected bytes-like object, not int")
+    if obj_type is bytearray:
+        return bytes(s)
+    if obj_type is memoryview:
+        return s.tobytes()
     return bytes(s)

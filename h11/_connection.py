@@ -244,18 +244,20 @@ class Connection:
         See :ref:`keepalive-and-pipelining`.
 
         """
-        old_states = dict(self._cstate.states)
+        old_our_state = self._cstate.states[self.our_role]
+        old_their_state = self._cstate.states[self.their_role]
         self._cstate.start_next_cycle()
         self._request_method = None
         # self.their_http_version gets left alone, since it presumably lasts
         # beyond a single request/response cycle
         assert not self.client_is_waiting_for_100_continue
-        self._respond_to_state_changes(old_states)
+        self._respond_to_state_changes(old_our_state, old_their_state)
 
     def _process_error(self, role: Type[Sentinel]) -> None:
-        old_states = dict(self._cstate.states)
+        old_our_state = self._cstate.states[self.our_role]
+        old_their_state = self._cstate.states[self.their_role]
         self._cstate.process_error(role)
-        self._respond_to_state_changes(old_states)
+        self._respond_to_state_changes(old_our_state, old_their_state)
 
     def _server_switch_event(self, event: Event) -> Optional[Type[Sentinel]]:
         if type(event) is InformationalResponse and event.status_code == 101:
@@ -272,7 +274,8 @@ class Connection:
     def _process_event(self, role: Type[Sentinel], event: Event) -> None:
         # First, pass the event through the state machine to make sure it
         # succeeds.
-        old_states = dict(self._cstate.states)
+        old_our_state = self._cstate.states[self.our_role]
+        old_their_state = self._cstate.states[self.their_role]
         if role is CLIENT and type(event) is Request:
             if event.method == b"CONNECT":
                 self._cstate.process_client_switch_proposal(_SWITCH_CONNECT)
@@ -315,7 +318,7 @@ class Connection:
         if role is CLIENT and type(event) in (Data, EndOfMessage):
             self.client_is_waiting_for_100_continue = False
 
-        self._respond_to_state_changes(old_states, event)
+        self._respond_to_state_changes(old_our_state, old_their_state, event)
 
     def _get_io_object(
         self,
@@ -341,13 +344,15 @@ class Connection:
     # self._cstate.states to change.
     def _respond_to_state_changes(
         self,
-        old_states: Dict[Type[Sentinel], Type[Sentinel]],
+        old_our_state: Type[Sentinel],
+        old_their_state: Type[Sentinel],
         event: Optional[Event] = None,
     ) -> None:
         # Update reader/writer
-        if self.our_state != old_states[self.our_role]:
+        current_states = self._cstate.states
+        if current_states[self.our_role] is not old_our_state:
             self._writer = self._get_io_object(self.our_role, event, WRITERS)
-        if self.their_state != old_states[self.their_role]:
+        if current_states[self.their_role] is not old_their_state:
             self._reader = self._get_io_object(self.their_role, event, READERS)
 
     @property
